@@ -1,0 +1,9 @@
+apache-airflow
+requests
+beautifulsoup4
+google-cloud-storage
+google-cloud-bigquery
+pandas
+pytest
+flake8
+python-dotenv

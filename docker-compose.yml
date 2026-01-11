@@ -1,0 +1,120 @@
+services:
+  scraper:
+    build: .
+    container_name: price_watch_scraper
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data  # Map local 'data' folder to container '/app/data'
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    command: python src/scraper.py
+    environment:
+      - LOG_LEVEL=INFO
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-key.json
+
+
+  currency-api:
+    build: .
+    container_name: price_watch_currency
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    command: python src/currency_api.py
+    environment:
+      - LOG_LEVEL=INFO
+      # Uncomment below for GCP Auth
+      # - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-key.json
+
+  # --- AIRFLOW SECTION ---
+  airflow-common: &airflow-common
+    image: apache/airflow:2.7.1-python3.11
+    environment:
+      - AIRFLOW__CORE__EXECUTOR=LocalExecutor
+      - AIRFLOW__DATABASE__SQL_ALCHEMY_CONN=postgresql+psycopg2://airflow:airflow@postgres/airflow
+      # Valid Fernet Key (Loaded from .env)
+      - AIRFLOW__CORE__FERNET_KEY=${AIRFLOW_FERNET_KEY}
+      - AIRFLOW__CORE__DAGS_ARE_PAUSED_AT_CREATION=True
+      - AIRFLOW__CORE__LOAD_EXAMPLES=False
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-key.json
+      - GCP_RAW_BUCKET=${GCP_RAW_BUCKET}
+      - PYTHONPATH=/opt/airflow
+    volumes:
+      - ./dags:/opt/airflow/dags
+      - ./src:/opt/airflow/src
+      - ./sql:/opt/airflow/sql
+      - ./data:/opt/airflow/data
+      - ./requirements.txt:/requirements.txt
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    user: "${AIRFLOW_UID:-50000}:0"
+
+  postgres:
+    image: postgres:13
+    container_name: price_watch_db
+    environment:
+      - POSTGRES_USER=airflow
+      - POSTGRES_PASSWORD=airflow
+      - POSTGRES_DB=airflow
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U airflow"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  airflow-webserver:
+    <<: *airflow-common
+    container_name: price_watch_airflow_webserver
+    command: webserver
+    ports:
+      - "8080:8080"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-scheduler:
+    <<: *airflow-common
+    container_name: price_watch_airflow_scheduler
+    command: bash -c "pip install -r /requirements.txt && airflow scheduler"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+  airflow-init:
+    <<: *airflow-common
+    container_name: price_watch_airflow_init
+    command: bash -c "airflow db init && airflow users create --username admin --password admin --firstname Admin --lastname User --role Admin --email admin@example.com"
+    depends_on:
+      postgres:
+        condition: service_healthy
+
+
+  loader:
+    build: .
+    container_name: price_watch_loader
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      # Uncomment below for GCP Auth
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    command: python src/gcs_loader.py
+    environment:
+      - LOG_LEVEL=INFO
+      # Uncomment below for GCP Auth
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-key.json
+
+  bq_loader:
+    build: .
+    container_name: price_watch_loader_bq
+    env_file:
+      - .env
+    volumes:
+      - ./data:/app/data
+      # Uncomment below for GCP Auth
+      - ./service-account-key.json:/app/service-account-key.json:ro
+    command: python src/bq_loader.py
+    environment:
+      - LOG_LEVEL=INFO
+      # Uncomment below for GCP Auth
+      - GOOGLE_APPLICATION_CREDENTIALS=/app/service-account-key.json

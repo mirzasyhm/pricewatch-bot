@@ -1,0 +1,21 @@
+# Python
+__pycache__/
+*.py[cod]
+venv/
+.pytest_cache/
+
+# Data
+data/
+*.json
+
+# Secrets (CRITICAL)
+service-account-key.json
+.env
+
+# Terraform
+terraform/.terraform/
+*.tfstate
+*.tfstate.backup
+
+# Docker
+.dockerignore
